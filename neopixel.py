@@ -29,7 +29,6 @@ MQTT_COMMAND_TOPIC = MQTT_PREFIX + "/command"
 MQTT_CONFIG_TOPIC  = MQTT_DISCOVERY_PREFIX + "/light/" + MQTT_PREFIX + "/config"
 
 color = 0x000000
-brightness = 255
 effect = "None"
 
 if LED_COUNT is None:
@@ -64,7 +63,7 @@ discovery_data = json.dumps({
     "payload_available": "1",
     "payload_not_available": "0",
     "qos": MQTT_QOS,
-    "brightness": True,
+    "brightness": False,
     "rgb": True,
     "white_value": False,
     "color_temp": False,
@@ -77,13 +76,9 @@ def on_mqtt_message(mqtt, data, message):
     print("Message received ", payload)
 
     response = None
-    global color, brightness, effect
+    global color, effect
 
     if payload["state"] == "ON":
-        if "brightness" in payload:
-            brightness = payload["brightness"]
-            print("Setting new brightness: %d" % brightness)
-
         if "effect" in payload:
             effect = payload["effect"]
             print("Setting new effect: \"%s\"" % payload["effect"])
@@ -100,7 +95,6 @@ def on_mqtt_message(mqtt, data, message):
 
         response = json.dumps({
             "state": "ON",
-            "brightness": brightness,
             "color": {
                 "r": (color >> 16) & 0xFF,
                 "g": (color >> 8) & 0xFF,
@@ -124,7 +118,6 @@ def on_mqtt_connect(mqtt, userdata, flags, rc):
     if color > 0:
         response = json.dumps({
             "state": "ON",
-            "brightness": brightness,
             "color": {
                 "r": (color >> 16) & 0xFF,
                 "g": (color >> 8) & 0xFF,
@@ -180,14 +173,15 @@ mqtt.loop_start()
 
 try:
     while True:
-        # for i in range(LED_COUNT):
-        #     ws.ws2811_led_set(channel, i, 0x000000)
+        for i in range(LED_COUNT):
+            ws.ws2811_led_set(channel, i, color)
 
-        # resp = ws.ws2811_render(leds)
+        resp = ws.ws2811_render(leds)
 
-        # if resp != ws.WS2811_SUCCESS:
-        #     message = ws.ws2811_get_return_t_str(resp)
-        #     raise RuntimeError('ws2811_render failed with code {0} ({1})'.format(resp, message))
+        if resp != ws.WS2811_SUCCESS:
+            message = ws.ws2811_get_return_t_str(resp)
+            raise RuntimeError('ws2811_render failed with code {0} ({1})'.format(resp, message))
+
         time.sleep(5.0)
 
 finally:
