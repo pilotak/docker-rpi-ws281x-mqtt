@@ -29,6 +29,7 @@ MQTT_COMMAND_TOPIC = MQTT_PREFIX + "/command"
 MQTT_CONFIG_TOPIC  = MQTT_DISCOVERY_PREFIX + "/light/" + MQTT_PREFIX + "/config"
 
 color = 0x000000
+state = False
 effect = "None"
 
 if LED_COUNT is None:
@@ -76,9 +77,11 @@ def on_mqtt_message(mqtt, data, message):
     print("Message received ", payload)
 
     response = None
-    global color, effect
+    global color, effect, state
 
     if payload["state"] == "ON":
+        state = True
+
         if "effect" in payload:
             effect = payload["effect"]
             print("Setting new effect: \"%s\"" % payload["effect"])
@@ -86,8 +89,8 @@ def on_mqtt_message(mqtt, data, message):
         if "color" in payload:
             color = 0
             color += payload["color"]["b"]
-            color += payload["color"]["g"] << 8
-            color += payload["color"]["r"] << 16
+            color += payload["color"]["r"] << 8
+            color += payload["color"]["g"] << 16
             print("Setting new color: 0x%06X" % color)
 
         elif color == 0:
@@ -96,31 +99,32 @@ def on_mqtt_message(mqtt, data, message):
         response = json.dumps({
             "state": "ON",
             "color": {
-                "r": (color >> 16) & 0xFF,
-                "g": (color >> 8) & 0xFF,
+                "r": (color >> 8) & 0xFF,
+                "g": (color >> 16) & 0xFF,
                 "b": color & 0xFF
             },
             "effect": effect
         })
 
     elif payload["state"] == "OFF":
-        color = 0x000000;
+        state = False
         response = json.dumps({"state": "OFF"})
 
     if response is not None:
         mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS, retain=True)
 
 def on_mqtt_connect(mqtt, userdata, flags, rc):
+    print("MQTT connected")
     mqtt.subscribe(MQTT_COMMAND_TOPIC)
     mqtt.publish(MQTT_STATUS_TOPIC, payload="1", qos=MQTT_QOS, retain=True)
     mqtt.publish(MQTT_CONFIG_TOPIC, payload=discovery_data, qos=MQTT_QOS, retain=True)
 
-    if color > 0:
+    if state and color > 0:
         response = json.dumps({
             "state": "ON",
             "color": {
-                "r": (color >> 16) & 0xFF,
-                "g": (color >> 8) & 0xFF,
+                "r": (color >> 8) & 0xFF,
+                "g": (color >> 16) & 0xFF,
                 "b": color & 0xFF
             },
             "effect": effect
@@ -174,7 +178,8 @@ mqtt.loop_start()
 try:
     while True:
         for i in range(LED_COUNT):
-            ws.ws2811_led_set(channel, i, color)
+            new_color = color if state else 0x000000
+            ws.ws2811_led_set(channel, i, new_color)
 
         resp = ws.ws2811_render(leds)
 
@@ -182,7 +187,7 @@ try:
             message = ws.ws2811_get_return_t_str(resp)
             raise RuntimeError('ws2811_render failed with code {0} ({1})'.format(resp, message))
 
-        time.sleep(5.0)
+        time.sleep(0.5)
 
 finally:
     mqtt.disconnect()

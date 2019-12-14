@@ -1,5 +1,4 @@
-# Control WS281x from Docker
-
+# Control WS281x connected on Raspberry Pi via MQTT
 For supported GPIOs please see [rpi-ws281x-python](https://github.com/rpi-ws281x/rpi-ws281x-python/blob/master/library/README.rst)
 
 ## Environmental variables
@@ -33,3 +32,33 @@ services:
       - LED_GPIO=12
       - LED_COUNT=10
 ```
+
+**This image is ready to be used in HomeAssistant - supports MQTT discovery, for all other purposes, please see topics used below**
+
+## MQTT topics
+**To set color:**
+Topic: `rpi-ws281x/command`
+*Note: `color` and `effect` are optional keys, you can send both or just one or none in which case last color selected is used.*
+```json
+{
+    "state": "ON",
+    "color": {
+        "r": 0,
+        "g": 255,
+        "b": 0
+    },
+    "effect": "Knight Rider"
+}
+```
+
+**To turn off:**
+Topic: `rpi-ws281x/command`
+```json
+{
+    "state": "OFF"
+}
+```
+
+**Get availability:**
+Topic: `rpi-ws281x/alive`
+Response: `1` or `0`
