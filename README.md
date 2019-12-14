@@ -19,14 +19,14 @@ For supported GPIOs please see [rpi-ws281x-python](https://github.com/rpi-ws281x
 - `MQTT_DISCOVERY_PREFIX` *(optional; default='homeassistant')*
 
 
-`docker-compose.yml`
+### `docker-compose.yml`
 ```yaml
 version: "3.6"
 services:  
   rpi_ws281x:
     container_name: rpi_ws281x
     restart: always
-    build: ./docker-homeassistant-ws281x
+    build: ./docker-rpi-ws281x-mqtt
     privileged: true
     environment:
       - LED_GPIO=12
@@ -76,4 +76,5 @@ Topic: `rpi-ws281x/state`
 
 ### Availability
 Topic: `rpi-ws281x/alive`
+
 Response: `1` or `0`
