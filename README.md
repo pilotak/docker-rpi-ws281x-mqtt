@@ -36,8 +36,8 @@ services:
 **This image is ready to be used in HomeAssistant - supports MQTT discovery, for all other purposes, please see topics used below**
 
 ## MQTT topics
-**To set color:**
-Topic: `rpi-ws281x/command`
+### To set color
+Send to topic: `rpi-ws281x/command`
 *Note: `color` and `effect` are optional keys, you can send both or just one or none in which case last color selected is used.*
 ```json
 {
@@ -51,14 +51,23 @@ Topic: `rpi-ws281x/command`
 }
 ```
 
-**To turn off:**
-Topic: `rpi-ws281x/command`
+### To turn off
+Send to topic: `rpi-ws281x/command`
 ```json
 {
     "state": "OFF"
 }
 ```
 
-**Get availability:**
+### Last state
+Topic: `rpi-ws281x/state`
+Response:
+```json
+{
+    "state": "ON"
+}
+```
+
+### Availability
 Topic: `rpi-ws281x/alive`
 Response: `1` or `0`
