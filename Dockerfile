@@ -10,4 +10,4 @@ RUN apt-get update && apt-get install -y git build-essential \
 && cd /app/rpi-ws281x-python/library \
 && python3 setup.py install
 
-CMD ["python", "-u", "neopixel.py"]
+CMD ["python", "-u", "ws281x.py"]
