@@ -28,7 +28,7 @@ services:
   rpi_ws281x:
     container_name: rpi_ws281x
     restart: unless-stopped
-    image: pilotak/rpi-ws281x-mqtt
+    build: ./docker-rpi-ws281x-mqtt
     privileged: true
     environment:
       - LED_GPIO=12
