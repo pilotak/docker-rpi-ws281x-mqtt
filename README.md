@@ -1,5 +1,4 @@
 # Control WS281x connected on Raspberry Pi via MQTT
-![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/pilotak/rpi-ws281x-mqtt.svg) ![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/pilotak/rpi-ws281x-mqtt.svg)
 
 For supported GPIOs please see [rpi-ws281x-python](https://github.com/rpi-ws281x/rpi-ws281x-python/blob/master/library/README.rst)
 
@@ -28,7 +27,7 @@ services:
   rpi_ws281x:
     container_name: rpi_ws281x
     restart: unless-stopped
-    build: ./docker-rpi-ws281x-mqtt
+    image: pilotak/rpi-ws281x-mqtt
     privileged: true
     environment:
       - LED_GPIO=12
