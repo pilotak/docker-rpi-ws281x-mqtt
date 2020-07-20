@@ -1,36 +1,54 @@
 #!/usr/bin/env python3
 
-import os
-import time
 import json
-import _rpi_ws281x as ws
+import multiprocessing
+import os
 import paho.mqtt.client as paho
+import time
+from rpi_ws281x import Color
+from rpi_ws281x import Adafruit_NeoPixel
+from strandtest import theaterChaseRainbow
+from strandtest import rainbowCycle
 
-LED_GPIO       = os.getenv('LED_GPIO')
-LED_COUNT      = os.getenv('LED_COUNT') 
-LED_CHANNEL    = os.getenv('LED_CHANNEL', 0)
-LED_FREQ_HZ    = os.getenv('LED_FREQ_HZ', 800000)
-LED_DMA_NUM    = os.getenv('LED_DMA_NUM', 10)
+LED_GPIO = os.getenv('LED_GPIO', 18)
+LED_COUNT = os.getenv('LED_COUNT', 300)
+LED_CHANNEL = os.getenv('LED_CHANNEL', 0)
+LED_FREQ_HZ = os.getenv('LED_FREQ_HZ', 800000)
+LED_DMA_NUM = os.getenv('LED_DMA_NUM', 10)
 LED_BRIGHTNESS = os.getenv('LED_BRIGHTNESS', 255)
-LED_INVERT     = os.getenv('LED_INVERT', 0)
+LED_INVERT = os.getenv('LED_INVERT', 0)
 
-MQTT_BROKER   = os.getenv('MQTT_BROKER', 'localhost')
-MQTT_USER     = os.getenv('MQTT_USER', None)
+MQTT_BROKER = os.getenv('MQTT_BROKER', 'localhost')
+MQTT_USER = os.getenv('MQTT_USER', None)
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD', None)
-MQTT_PORT     = os.getenv('MQTT_PORT', 1883)
-MQTT_QOS      = os.getenv('MQTT_QOS', 1)
-MQTT_ID       = os.getenv('MQTT_ID', 'rpi-ws281x')
-MQTT_PREFIX   = os.getenv('MQTT_PREFIX', 'rpi-ws281x')
+MQTT_PORT = os.getenv('MQTT_PORT', 1883)
+MQTT_QOS = os.getenv('MQTT_QOS', 1)
+MQTT_ID = os.getenv('MQTT_ID', 'rpi-ws281x')
+MQTT_PREFIX = os.getenv('MQTT_PREFIX', 'rpi-ws281x')
 MQTT_DISCOVERY_PREFIX = os.getenv('MQTT_DISCOVERY_PREFIX', 'homeassistant')
 
-MQTT_STATUS_TOPIC  = MQTT_PREFIX + "/alive"
-MQTT_STATE_TOPIC   = MQTT_PREFIX + "/state"
-MQTT_COMMAND_TOPIC = MQTT_PREFIX + "/command"
-MQTT_CONFIG_TOPIC  = MQTT_DISCOVERY_PREFIX + "/light/" + MQTT_PREFIX + "/config"
+MQTT_STATUS_TOPIC = "%s/alive" % MQTT_PREFIX
+MQTT_STATE_TOPIC = "%s/state" % MQTT_PREFIX
+MQTT_COMMAND_TOPIC = "%s/command" % MQTT_PREFIX
+MQTT_CONFIG_TOPIC = "%s/light/%s/config" % (MQTT_DISCOVERY_PREFIX, MQTT_PREFIX)
 
 color = 0x000000
 state = False
 effect = "None"
+
+# worker process that maintains running effects
+effect_process = None
+effect_active = False
+
+STATE_ON = True
+STATE_OFF = False
+
+EFFECT_THEATER_RAINBOW = "Theater Rainbow"
+EFFECT_RAINBOW = "Rainbow"
+EFFECT_KNIGHT_RIDER = "Knight Rider"
+
+effects_list = [EFFECT_THEATER_RAINBOW, EFFECT_RAINBOW]
+color_effects_list = [EFFECT_KNIGHT_RIDER]
 
 if LED_COUNT is None:
     raise ValueError('LED_COUNT is required env parameter')
@@ -38,13 +56,13 @@ if LED_COUNT is None:
 if LED_GPIO is None:
     raise ValueError('LED_GPIO is required env parameter')
 
-LED_CHANNEL    = int(LED_CHANNEL)
-LED_COUNT      = int(LED_COUNT)
-LED_FREQ_HZ    = int(LED_FREQ_HZ)
-LED_DMA_NUM    = int(LED_DMA_NUM)
-LED_GPIO       = int(LED_GPIO)
+LED_CHANNEL = int(LED_CHANNEL)
+LED_COUNT = int(LED_COUNT)
+LED_FREQ_HZ = int(LED_FREQ_HZ)
+LED_DMA_NUM = int(LED_DMA_NUM)
+LED_GPIO = int(LED_GPIO)
 LED_BRIGHTNESS = int(LED_BRIGHTNESS)
-LED_INVERT     = int(LED_INVERT)
+LED_INVERT = int(LED_INVERT)
 
 if LED_BRIGHTNESS > 255 or LED_BRIGHTNESS < 1:
     raise ValueError('LED_BRIGHTNESS must be between 1-255')
@@ -57,7 +75,7 @@ if LED_DMA_NUM > 14 or LED_DMA_NUM < 0:
 
 discovery_data = json.dumps({
     "name": MQTT_ID,
-    "schema":"json",
+    "schema": "json",
     "command_topic": MQTT_COMMAND_TOPIC,
     "state_topic": MQTT_STATE_TOPIC,
     "availability_topic": MQTT_STATUS_TOPIC,
@@ -69,58 +87,169 @@ discovery_data = json.dumps({
     "white_value": False,
     "color_temp": False,
     "effect": True,
-    "effect_list": ["None", "Knight Rider"],
+    "effect_list": effects_list + color_effects_list,
 })
+
+
+def get_bright_color(red, green, blue, relative_brightness):
+    # takes a color and the desired new relative brightness in percent
+
+    new_red = int(red * relative_brightness)
+    new_green = int(green * relative_brightness)
+    new_blue = int(blue * relative_brightness)
+
+    new_color = (new_red << 16) + (new_green << 8) + new_blue
+
+    return new_color
+
+
+def knight_rider(strip, red, green, blue, effect_seconds=2, offset=0, step=2):
+    # mandatory: R,G,B intensity values
+    # optionally:
+    #   effect_seconds: desired effect duration (roughly) in seconds for passing the entire LED strip once
+    #   NOTE: ws2812 can only be updated ~83 times per second, for higher effect speed use the step parameter
+    #   offset: exclude all LEDs before that LED number
+    #   step: shift the effect these many LEDs forward during each iteration
+    total_pixels = strip.numPixels()
+    wait_ms = 1000 * effect_seconds / (total_pixels-offset)
+
+    for i in range(0+offset, total_pixels):
+        strip.setPixelColor(i, get_bright_color(red, green, blue, 0.01))
+    strip.show()
+    for i in range(2+offset, total_pixels-2):
+        start_ms = int(round(time.time() * 1000))
+        strip.setPixelColor(i-2, get_bright_color(red, green, blue, 0.1))
+        strip.setPixelColor(i-1, get_bright_color(red, green, blue, 0.5))
+        strip.setPixelColor(i, get_bright_color(red, green, blue, 1.0))
+        strip.setPixelColor(i+1, get_bright_color(red, green, blue, 0.5))
+        strip.setPixelColor(i+2, get_bright_color(red, green, blue, 0.1))
+        if i % step == 0:
+            strip.show()
+        end_ms = int(round(time.time() * 1000))
+        diff_ms = wait_ms - round(end_ms - start_ms)
+        if diff_ms > 0:
+            time.sleep(diff_ms/1000.0)
+        strip.setPixelColor(i-2, get_bright_color(red, green, blue, 0.01))
+    for i in range(total_pixels-2, 2+offset, -1):
+        start_ms = int(round(time.time() * 1000))
+        strip.setPixelColor(i+2, get_bright_color(red, green, blue, 0.1))
+        strip.setPixelColor(i+1, get_bright_color(red, green, blue, 0.5))
+        strip.setPixelColor(i, get_bright_color(red, green, blue, 1.0))
+        strip.setPixelColor(i-1, get_bright_color(red, green, blue, 0.5))
+        strip.setPixelColor(i-2, get_bright_color(red, green, blue, 0.1))
+        if i % step == 0:
+            strip.show()
+        end_ms = int(round(time.time() * 1000))
+        diff_ms = wait_ms - round(end_ms - start_ms)
+        if diff_ms > 0:
+            time.sleep(diff_ms/1000.0)
+        strip.setPixelColor(i+2, get_bright_color(red, green, blue, 0.01))
+
 
 def on_mqtt_message(mqtt, data, message):
     payload = json.loads(str(message.payload.decode("utf-8")))
     print("Message received ", payload)
 
-    response = None
-    global color, effect, state
+    global color, effect_active, effect_process, effect, state
+    response_dict = {}
 
-    if payload["state"] == "ON":
-        state = True
+    state = None
 
+    if "state" in payload:
+        if payload["state"] == "ON":
+            state = STATE_ON
+        elif payload["state"] == "OFF":
+            state = STATE_OFF
+    # terminate active effect
+    if effect_active:
+        effect_process.terminate()
+        effect_active = False
+
+    # power on led strip
+    if state == True:
+        response_dict["state"] = "ON"
         if "effect" in payload:
             effect = payload["effect"]
-            print("Setting new effect: \"%s\"" % payload["effect"])
+            response_dict["effect"] = effect
+        else:
+            effect = None
+        color_payload = "color" in payload
+        # effects without specific color, e.g. rainbow
+        if effect and not color_payload:
+            color = None
+            if not effect in effects_list:
+                print("Unsupported effect '%s'" % effect)
+                return
+            print("Setting new effect: \"%s\"" % effect)
+            if effect == EFFECT_THEATER_RAINBOW:
+                effect_process = multiprocessing.Process(
+                    target=loop_function_call, args=(theaterChaseRainbow, strip, 30))
+            elif effect == EFFECT_RAINBOW:
+                effect_process = multiprocessing.Process(
+                    target=loop_function_call, args=(rainbowCycle, strip, 30))
+            effect_process.start()
+            effect_active = True
 
-        if "color" in payload:
+        elif color_payload:
+            red_intensity = payload["color"]["r"]
+            green_intensity = payload["color"]["g"]
+            blue_intensity = payload["color"]["b"]
             color = 0
-            color += payload["color"]["b"]
-            color += payload["color"]["r"] << 8
-            color += payload["color"]["g"] << 16
-            print("Setting new color: 0x%06X" % color)
+            color += blue_intensity
+            color += (green_intensity << 8)
+            color += (red_intensity << 16)
+            color_dict = {"r": red_intensity,
+                          "g": green_intensity,
+                          "b": blue_intensity}
+            response_dict["color"] = color_dict
 
-        elif color == 0:
-            color = 0xFFFFFF
+            # effects with specific color, e.g. knight rider
+            if effect:
+                if not effect in color_effects_list:
+                    error = "Unsupported color effect '%s'" % effect
+                    if effect in effects_list:
+                        error_hint = "This effect is only supported without the 'color' field"
+                        error = "%s\n%s" % (error, error_hint)
+                    response_dict["error"] = error
+                print("Setting new color effect: \"%s\"" % payload["effect"])
 
-        response = json.dumps({
-            "state": "ON",
-            "color": {
-                "r": (color >> 8) & 0xFF,
-                "g": (color >> 16) & 0xFF,
-                "b": color & 0xFF
-            },
-            "effect": effect
-        })
+                effect_process = multiprocessing.Process(
+                    target=loop_function_call, args=(knight_rider, strip, red_intensity, green_intensity, blue_intensity))
+                effect_process.start()
+                effect_active = True
+            # plain color
+            else:
+                print("Setting new color: 0x%06X" % color)
+                set_all_leds_color(strip, color)
 
-    elif payload["state"] == "OFF":
-        state = False
-        response = json.dumps({"state": "OFF"})
+        # neither color nor effect was requested
+        else:
+            print("Invalid request: A color or an effect has to be provided")
 
-    if response is not None:
-        mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS, retain=True)
+    # power off led strip
+    elif state == False:
+        response_dict["state"] = "OFF"
+        all_leds_off(strip)
+
+    # no state provided
+    else:  # state == None
+        response_dict["state"] = "none"
+        print("Invalid request: Missing 'state' field")
+
+    response_json = json.dumps(response_dict)
+    mqtt.publish(MQTT_STATE_TOPIC, payload=response_json,
+                 qos=MQTT_QOS, retain=True)
+
 
 def on_mqtt_connect(mqtt, userdata, flags, rc):
     print("MQTT connected")
     mqtt.subscribe(MQTT_COMMAND_TOPIC)
     mqtt.publish(MQTT_STATUS_TOPIC, payload="1", qos=MQTT_QOS, retain=True)
-    mqtt.publish(MQTT_CONFIG_TOPIC, payload=discovery_data, qos=MQTT_QOS, retain=True)
+    mqtt.publish(MQTT_CONFIG_TOPIC, payload=discovery_data,
+                 qos=MQTT_QOS, retain=True)
 
     if state and color > 0:
-        response = json.dumps({
+        response_dict = {
             "state": "ON",
             "color": {
                 "r": (color >> 8) & 0xFF,
@@ -128,42 +257,31 @@ def on_mqtt_connect(mqtt, userdata, flags, rc):
                 "b": color & 0xFF
             },
             "effect": effect
-        })
-
+        }
     else:
-        response = json.dumps({"state": "OFF"})
+        response_dict = {"state": "OFF"}
 
+    response = json.dumps(response_dict)
     mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS, retain=True)
 
-print("Setting up %d LEDS on pin %d" %(LED_COUNT, LED_GPIO))
-  
-leds = ws.new_ws2811_t()
 
-for channum in range(2):
-    channel = ws.ws2811_channel_get(leds, channum)
-    ws.ws2811_channel_t_count_set(channel, 0)
-    ws.ws2811_channel_t_gpionum_set(channel, 0)
-    ws.ws2811_channel_t_invert_set(channel, 0)
-    ws.ws2811_channel_t_brightness_set(channel, 0)
+def set_all_leds_color(strip, new_color):
+    for i in range(strip.numPixels()):
+        strip.setPixelColor(i, new_color)
+    strip.show()
 
-channel = ws.ws2811_channel_get(leds, LED_CHANNEL)
 
-ws.ws2811_channel_t_count_set(channel, LED_COUNT)
-ws.ws2811_channel_t_gpionum_set(channel, LED_GPIO)
-ws.ws2811_channel_t_invert_set(channel, LED_INVERT)
-ws.ws2811_channel_t_brightness_set(channel, LED_BRIGHTNESS)
+def all_leds_off(strip):
+    set_all_leds_color(strip, 0)
 
-ws.ws2811_t_freq_set(leds, LED_FREQ_HZ)
-ws.ws2811_t_dmanum_set(leds, LED_DMA_NUM)
 
-resp = ws.ws2811_init(leds)
+print("Setting up %d LEDS on pin %d" % (LED_COUNT, LED_GPIO))
 
-if resp != ws.WS2811_SUCCESS:
-    message = ws.ws2811_get_return_t_str(resp)
-    raise RuntimeError('ws2811_init failed with code {0} ({1})'.format(resp, message))
-else:
-    print("Setup of WS281x successfull")
-
+# Create NeoPixel object with appropriate configuration.
+strip = Adafruit_NeoPixel(LED_COUNT, LED_GPIO, LED_FREQ_HZ,
+                          LED_DMA_NUM, LED_INVERT, LED_BRIGHTNESS, LED_CHANNEL)
+# Intialize the library (must be called once before other functions).
+strip.begin()
 
 mqtt = paho.Client(MQTT_ID)
 
@@ -175,23 +293,23 @@ mqtt.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 mqtt.connect(MQTT_BROKER, MQTT_PORT)
 mqtt.loop_start()
 
-try:
+
+def loop_function_call(function, *args):
     while True:
-        for i in range(LED_COUNT):
-            new_color = color if state else 0x000000
-            ws.ws2811_led_set(channel, i, new_color)
+        function(*args)
 
-        resp = ws.ws2811_render(leds)
 
-        if resp != ws.WS2811_SUCCESS:
-            message = ws.ws2811_get_return_t_str(resp)
-            raise RuntimeError('ws2811_render failed with code {0} ({1})'.format(resp, message))
+try:
+    loop_function_call(time.sleep, 0.1)
 
-        time.sleep(0.5)
+except KeyboardInterrupt:
+    pass
 
 finally:
+    all_leds_off(strip)
     mqtt.disconnect()
     mqtt.loop_stop()
-
-    ws.ws2811_fini(leds)
-    ws.delete_ws2811_t(leds)
+    try:
+        effect_process.terminate()
+    except AttributeError:
+        pass
