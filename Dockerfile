@@ -1,17 +1,16 @@
-FROM python:3.8-slim
+FROM python:3.8-slim as builder
 
-WORKDIR /app
+COPY ./requirements.txt /opt/requirements.txt
 
-COPY . /app
+RUN apt-get update 
 
-RUN apt-get update && apt-get -y --no-install-recommends install git build-essential \
-&& pip3 install --trusted-host pypi.python.org -r requirements.txt \
-&& git clone --recurse-submodules https://github.com/rpi-ws281x/rpi-ws281x-python \
-&& cd /app/rpi-ws281x-python/library \
-&& python3 setup.py install \
-&& apt-get purge -y git ca-certificates build-essential \
-&& apt-get autoremove -y \
-&& apt-get clean \
-&& rm -rf /var/lib/apt/lists/*
+RUN apt-get install -y gcc make build-essential git scons swig
+RUN pip3 install --no-warn-script-location --user -r /opt/requirements.txt
 
-CMD ["python", "-u", "ws281x.py"]
+FROM python:3.8-slim as executor
+
+COPY --from=builder /root/.local /root/.local
+COPY ./strandtest.py /app/strandtest.py
+CMD ["python", "-u", "/app/ws281x.py"]
+COPY ./ws281x.py /app/ws281x.py
+
