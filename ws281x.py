@@ -43,12 +43,13 @@ effect_active = False
 STATE_ON = True
 STATE_OFF = False
 
+EFFECT_NO_EFFECT = "none"
 EFFECT_THEATER_RAINBOW = "Theater Rainbow"
 EFFECT_RAINBOW = "Rainbow"
 EFFECT_KNIGHT_RIDER = "Knight Rider"
 
 effects_list = [EFFECT_THEATER_RAINBOW, EFFECT_RAINBOW]
-color_effects_list = [EFFECT_KNIGHT_RIDER]
+color_effects_list = [EFFECT_KNIGHT_RIDER, EFFECT_NO_EFFECT]
 
 if LED_COUNT is None:
     raise ValueError('LED_COUNT is required env parameter')
@@ -172,10 +173,11 @@ def on_mqtt_message(mqtt, data, message):
             effect = payload["effect"]
             response_dict["effect"] = effect
         else:
-            effect = None
+            effect = EFFECT_NO_EFFECT
         color_payload = "color" in payload
         # effects without specific color, e.g. rainbow
-        if effect and not color_payload:
+        # TODO unify effects + plain color in one implementation with effect_function and default effect 'none'
+        if effect != EFFECT_NO_EFFECT and not color_payload:
             color = None
             if not effect in effects_list:
                 print("Unsupported effect '%s'" % effect)
@@ -204,19 +206,27 @@ def on_mqtt_message(mqtt, data, message):
             response_dict["color"] = color_dict
 
             # effects with specific color, e.g. knight rider
-            if effect:
-                if not effect in color_effects_list:
+            if effect != EFFECT_NO_EFFECT:
+
+                if effect in color_effects_list:
+                    print("Setting new color effect: \"%s\"" % effect)
+                    effect_function = None
+                    if effect == EFFECT_KNIGHT_RIDER:
+                        effect_function = knight_rider
+                    else:
+                        error = "No implementation for color effect '%s' found" % effect
+                        response_dict["error"] = error
+                    effect_process = multiprocessing.Process(target=loop_function_call,
+                                                             args=(effect_function, strip, red_intensity,
+                                                                   green_intensity, blue_intensity))
+                    effect_process.start()
+                    effect_active = True
+                else:
                     error = "Unsupported color effect '%s'" % effect
                     if effect in effects_list:
                         error_hint = "This effect is only supported without the 'color' field"
                         error = "%s\n%s" % (error, error_hint)
                     response_dict["error"] = error
-                print("Setting new color effect: \"%s\"" % payload["effect"])
-
-                effect_process = multiprocessing.Process(
-                    target=loop_function_call, args=(knight_rider, strip, red_intensity, green_intensity, blue_intensity))
-                effect_process.start()
-                effect_active = True
             # plain color
             else:
                 print("Setting new color: 0x%06X" % color)
@@ -234,7 +244,9 @@ def on_mqtt_message(mqtt, data, message):
     # no state provided
     else:  # state == None
         response_dict["state"] = "none"
-        print("Invalid request: Missing 'state' field")
+        error = "Invalid request: Missing 'state' field"
+        response_dict["error"] = error
+        print(error)
 
     response_json = json.dumps(response_dict)
     mqtt.publish(MQTT_STATE_TOPIC, payload=response_json,
