@@ -7,8 +7,8 @@ import paho.mqtt.client as paho
 import time
 from rpi_ws281x import Color
 from rpi_ws281x import Adafruit_NeoPixel
-from strandtest import theaterChaseRainbow
-from strandtest import rainbowCycle
+from effects import theaterChaseRainbow
+from effects import rainbowCycle
 
 LED_GPIO = os.getenv('LED_GPIO', 18)
 LED_COUNT = os.getenv('LED_COUNT', 300)

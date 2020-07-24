@@ -10,7 +10,7 @@ RUN pip3 install --no-warn-script-location --user -r /opt/requirements.txt
 FROM python:3.8-slim as executor
 
 COPY --from=builder /root/.local /root/.local
-COPY ./strandtest.py /app/strandtest.py
+COPY ./effects.py /app/effects.py
 CMD ["python", "-u", "/app/ws281x.py"]
 COPY ./ws281x.py /app/ws281x.py
 
