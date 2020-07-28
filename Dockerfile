@@ -1,16 +1,18 @@
+# Builder
 FROM python:3.8-slim as builder
 
-COPY ./requirements.txt /opt/requirements.txt
+COPY ./requirements.txt ./
 
-RUN apt-get update 
+RUN apt update \
+    && apt install -y --no-install-recommends gcc make build-essential scons swig \
+    && pip3 install --user -r requirements.txt
 
-RUN apt-get install -y gcc make build-essential git scons swig
-RUN pip3 install --no-warn-script-location --user -r /opt/requirements.txt
+# Executor
+FROM python:3.8-slim
 
-FROM python:3.8-slim as executor
+WORKDIR /app
 
 COPY --from=builder /root/.local /root/.local
-COPY ./effects.py /app/effects.py
-CMD ["python", "-u", "/app/ws281x.py"]
-COPY ./ws281x.py /app/ws281x.py
+COPY ./effects.py ./ws281x.py ./
 
+CMD ["python", "-u", "./ws281x.py"]
