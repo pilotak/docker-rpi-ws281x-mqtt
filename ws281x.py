@@ -40,6 +40,9 @@ effect = "None"
 effect_process = None
 effect_active = False
 
+PAYLOAD_STATE_ON = 'ON'
+PAYLOAD_STATE_OFF = 'OFF'
+
 STATE_ON = True
 STATE_OFF = False
 
@@ -111,13 +114,13 @@ def knight_rider(strip, red, green, blue, effect_seconds=2, offset=0, step=2):
     #   NOTE: ws2812 can only be updated ~83 times per second, for higher effect speed use the step parameter
     #   offset: exclude all LEDs before that LED number
     #   step: shift the effect these many LEDs forward during each iteration
-    total_pixels = strip.numPixels()
-    wait_ms = 1000 * effect_seconds / (total_pixels-offset)
+    global strip
+    wait_ms = 1000 * effect_seconds / (LED_COUNT-offset)
 
-    for i in range(0+offset, total_pixels):
+    for i in range(0+offset, LED_COUNT):
         strip.setPixelColor(i, get_bright_color(red, green, blue, 0.01))
     strip.show()
-    for i in range(2+offset, total_pixels-2):
+    for i in range(2+offset, LED_COUNT-2):
         start_ms = int(round(time.time() * 1000))
         strip.setPixelColor(i-2, get_bright_color(red, green, blue, 0.1))
         strip.setPixelColor(i-1, get_bright_color(red, green, blue, 0.5))
@@ -131,7 +134,7 @@ def knight_rider(strip, red, green, blue, effect_seconds=2, offset=0, step=2):
         if diff_ms > 0:
             time.sleep(diff_ms/1000.0)
         strip.setPixelColor(i-2, get_bright_color(red, green, blue, 0.01))
-    for i in range(total_pixels-2, 2+offset, -1):
+    for i in range(LED_COUNT-2, 2+offset, -1):
         start_ms = int(round(time.time() * 1000))
         strip.setPixelColor(i+2, get_bright_color(red, green, blue, 0.1))
         strip.setPixelColor(i+1, get_bright_color(red, green, blue, 0.5))
@@ -147,55 +150,56 @@ def knight_rider(strip, red, green, blue, effect_seconds=2, offset=0, step=2):
         strip.setPixelColor(i+2, get_bright_color(red, green, blue, 0.01))
 
 
-def on_mqtt_message(mqtt, data, message):
-    payload = json.loads(str(message.payload.decode("utf-8")))
-    print("Message received ", payload)
+def apply_plain_color(new_color):
+    red_intensity = new_color["r"]
+    green_intensity = new_color["g"]
+    blue_intensity = new_color["b"]
+    color = 0
+    color += blue_intensity
+    color += (green_intensity << 8)
+    color += (red_intensity << 16)
+    color_dict = {"r": red_intensity,
+                    "g": green_intensity,
+                    "b": blue_intensity}
+    set_all_leds_color(color)
+    return color_dict
 
-    global color, effect_active, effect_process, effect, state
-    response_dict = {}
-
-    state = None
-
-    if "state" in payload:
-        if payload["state"] == "ON":
-            state = STATE_ON
-        elif payload["state"] == "OFF":
-            state = STATE_OFF
+def apply_effect(new_effect, new_color):
+    global effect_process, state, effect
+    result_dict = {}
+    effect = new_effect
+    color = new_color
     # terminate active effect
     if effect_active:
         effect_process.terminate()
         effect_active = False
-
     # power on led strip
-    if state == True:
-        response_dict["state"] = "ON"
-        if "effect" in payload:
-            effect = payload["effect"]
-            response_dict["effect"] = effect
-        else:
-            effect = EFFECT_NO_EFFECT
-        color_payload = "color" in payload
+    if state == STATE_ON:
+        result_dict["state"] = "ON"
         # effects without specific color, e.g. rainbow
         # TODO unify effects + plain color in one implementation with effect_function and default effect 'none'
-        if effect != EFFECT_NO_EFFECT and not color_payload:
-            color = None
-            if not effect in effects_list:
+        if new_effect == EFFECT_NO_EFFECT:
+            color_dict = apply_plain_color(new_color)
+            result_dict["color"] = color_dict
+            effect_active = False
+        else:
+            if effect in effects_list:
+                if new_effect == EFFECT_RAINBOW:
+                    effect_process = multiprocessing.Process(
+                        target=loop_function_call, args=(rainbowCycle, 30))
+                elif new_effect == EFFECT_THEATER_RAINBOW:
+                    effect_process = multiprocessing.Process(
+                        target=loop_function_call, args=(theaterChaseRainbow, strip, 30))
+                effect_process.start()
+                effect_active = True
+                print("Setting new effect: \"%s\"" % effect)
+            else:
                 print("Unsupported effect '%s'" % effect)
-                return
-            print("Setting new effect: \"%s\"" % effect)
-            if effect == EFFECT_THEATER_RAINBOW:
-                effect_process = multiprocessing.Process(
-                    target=loop_function_call, args=(theaterChaseRainbow, strip, 30))
-            elif effect == EFFECT_RAINBOW:
-                effect_process = multiprocessing.Process(
-                    target=loop_function_call, args=(rainbowCycle, strip, 30))
-            effect_process.start()
-            effect_active = True
 
         elif color_payload:
-            red_intensity = payload["color"]["r"]
-            green_intensity = payload["color"]["g"]
-            blue_intensity = payload["color"]["b"]
+            red_intensity = new_color["r"]
+            green_intensity = new_color["g"]
+            blue_intensity = new_color["b"]
             color = 0
             color += blue_intensity
             color += (green_intensity << 8)
@@ -203,7 +207,7 @@ def on_mqtt_message(mqtt, data, message):
             color_dict = {"r": red_intensity,
                           "g": green_intensity,
                           "b": blue_intensity}
-            response_dict["color"] = color_dict
+            result_dict["color"] = color_dict
 
             # effects with specific color, e.g. knight rider
             if effect != EFFECT_NO_EFFECT:
@@ -214,19 +218,16 @@ def on_mqtt_message(mqtt, data, message):
                     if effect == EFFECT_KNIGHT_RIDER:
                         effect_function = knight_rider
                     else:
-                        error = "No implementation for color effect '%s' found" % effect
-                        response_dict["error"] = error
+                        error += "No implementation for color effect '%s' found" % effect
                     effect_process = multiprocessing.Process(target=loop_function_call,
                                                              args=(effect_function, strip, red_intensity,
                                                                    green_intensity, blue_intensity))
                     effect_process.start()
                     effect_active = True
                 else:
-                    error = "Unsupported color effect '%s'" % effect
+                    error += "Unsupported color effect '%s'\n" % effect
                     if effect in effects_list:
-                        error_hint = "This effect is only supported without the 'color' field"
-                        error = "%s\n%s" % (error, error_hint)
-                    response_dict["error"] = error
+                        error += "This effect is only supported without the 'color' field\n"
             # plain color
             else:
                 print("Setting new color: 0x%06X" % color)
@@ -238,13 +239,37 @@ def on_mqtt_message(mqtt, data, message):
 
     # power off led strip
     elif state == False:
-        response_dict["state"] = "OFF"
+        result_dict["state"] = "OFF"
         all_leds_off(strip)
+    return result_dict
 
-    # no state provided
-    else:  # state == None
-        response_dict["state"] = "none"
-        error = "Invalid request: Missing 'state' field"
+
+def on_mqtt_message(mqtt, data, message):
+    payload = json.loads(str(message.payload.decode("utf-8")))
+    print("Message received ", payload)
+
+    global color, effect_active, effect_process, effect, state
+    response_dict = {}
+    error = ''
+
+    if "state" in payload:
+        if payload["state"] == PAYLOAD_STATE_ON:
+            state = STATE_ON
+        elif payload["state"] == PAYLOAD_STATE_OFF:
+            state = STATE_OFF
+        else:
+            error += "Invalid request: Invalid value for 'state' field: '%s'\n" % payload["state"]
+        new_effect = payload.get('effect', EFFECT_NO_EFFECT)
+        new_color = payload.get('color', None)
+        sub_response_dict = apply_effect(new_effect, new_color)
+        for key in sub_response_dict:
+            response_dict[key] = sub_response_dict[key]
+    else:
+        # no state provided
+        response_dict["state"] = 'none'
+        error += "Invalid request: Missing 'state' field\n"
+
+    if error != '':
         response_dict["error"] = error
         print(error)
 
@@ -277,17 +302,20 @@ def on_mqtt_connect(mqtt, userdata, flags, rc):
     mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS, retain=True)
 
 
-def set_all_leds_color(strip, new_color):
+def set_all_leds_color(new_color):
+    global strip
     for i in range(strip.numPixels()):
         strip.setPixelColor(i, new_color)
     strip.show()
 
 
-def all_leds_off(strip):
-    set_all_leds_color(strip, 0)
+def all_leds_off():
+    set_all_leds_color(0)
 
 
 print("Setting up %d LEDS on pin %d" % (LED_COUNT, LED_GPIO))
+
+global strip
 
 # Create NeoPixel object with appropriate configuration.
 strip = Adafruit_NeoPixel(LED_COUNT, LED_GPIO, LED_FREQ_HZ,
@@ -318,7 +346,7 @@ except KeyboardInterrupt:
     pass
 
 finally:
-    all_leds_off(strip)
+    all_leds_off()
     mqtt.disconnect()
     mqtt.loop_stop()
     try:
