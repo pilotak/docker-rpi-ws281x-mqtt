@@ -13,6 +13,7 @@ FROM python:3.8-slim
 WORKDIR /app
 
 COPY --from=builder /root/.local /root/.local
-COPY ./effects.py ./ws281x.py ./
+COPY ./effects/ ./effects/
+COPY ./ws281x.py ./
 
 CMD ["python", "-u", "./ws281x.py"]

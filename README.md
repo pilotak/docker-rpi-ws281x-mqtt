@@ -39,7 +39,7 @@ services:
   rpi_ws281x:
     container_name: rpi_ws281x
     restart: unless-stopped
-    build: .
+    image: pilotak/rpi-ws281x-mqtt
     privileged: true
     depends_on:
       - mosquitto
