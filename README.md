@@ -28,15 +28,27 @@ For supported GPIOs please see [rpi-ws281x-python](https://github.com/rpi-ws281x
 ### `docker-compose.yml`
 ```yaml
 version: "3.6"
-services:  
+services:
+  mosquitto:
+    container_name: mosquitto
+    restart: always
+    image: eclipse-mosquitto
+    ports:
+      - 1883:1883
+
   rpi_ws281x:
     container_name: rpi_ws281x
     restart: unless-stopped
     image: pilotak/rpi-ws281x-mqtt
     privileged: true
+    depends_on:
+      - mosquitto
     environment:
-      - LED_GPIO=12
-      - LED_COUNT=10
+      - LED_GPIO=18
+      - LED_COUNT=167
+      - MQTT_BROKER=mosquitto
+      - MQTT_USER=user
+      - MQTT_PASSWORD=123456
 ```
 
 ## MQTT topics
