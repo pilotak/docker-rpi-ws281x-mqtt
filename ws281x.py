@@ -224,46 +224,49 @@ def on_mqtt_message(mqtt, data, message):
 
 
 def on_mqtt_connect(mqtt, userdata, flags, rc):
-    print('MQTT connected')
+    if rc == 0:
+        print('MQTT connected')
 
-    discovery_data = json.dumps({
-        'name': MQTT_ID,
-        'schema': 'json',
-        'command_topic': MQTT_COMMAND_TOPIC,
-        'state_topic': MQTT_STATE_TOPIC,
-        'availability_topic': MQTT_STATUS_TOPIC,
-        'payload_available': MQTT_PAYLOAD_ONLINE,
-        'payload_not_available': MQTT_PAYLOAD_OFFLINE,
-        'qos': MQTT_QOS,
-        'brightness': True,
-        'rgb': True,
-        'white_value': False,
-        'color_temp': False,
-        'effect': True,
-        'effect_list': effect_list_string(),
-        'optimistic': False,
-        'unique_id': MQTT_ID,
-    })
+        discovery_data = json.dumps({
+            'name': MQTT_ID,
+            'schema': 'json',
+            'command_topic': MQTT_COMMAND_TOPIC,
+            'state_topic': MQTT_STATE_TOPIC,
+            'availability_topic': MQTT_STATUS_TOPIC,
+            'payload_available': MQTT_PAYLOAD_ONLINE,
+            'payload_not_available': MQTT_PAYLOAD_OFFLINE,
+            'qos': MQTT_QOS,
+            'brightness': True,
+            'rgb': True,
+            'white_value': False,
+            'color_temp': False,
+            'effect': True,
+            'effect_list': effect_list_string(),
+            'optimistic': False,
+            'unique_id': MQTT_ID,
+        })
 
-    mqtt.subscribe(MQTT_COMMAND_TOPIC)
-    mqtt.publish(MQTT_STATUS_TOPIC, payload=MQTT_PAYLOAD_ONLINE,
-                 qos=MQTT_QOS, retain=True)
-    mqtt.publish(MQTT_CONFIG_TOPIC, payload=discovery_data,
-                 qos=MQTT_QOS, retain=True)
+        mqtt.subscribe(MQTT_COMMAND_TOPIC)
+        mqtt.publish(MQTT_STATUS_TOPIC, payload=MQTT_PAYLOAD_ONLINE,
+                     qos=MQTT_QOS, retain=True)
+        mqtt.publish(MQTT_CONFIG_TOPIC, payload=discovery_data,
+                     qos=MQTT_QOS, retain=True)
 
-    if current['state'] == 'ON':
-        response = {
-            'state': current['state'],
-            'color': current['color'],
-            'effect': get_fn_pretty(current['effect']),
-            'brightness': current['brightness']
-        }
+        if current['state'] == 'ON':
+            response = {
+                'state': current['state'],
+                'color': current['color'],
+                'effect': get_fn_pretty(current['effect']),
+                'brightness': current['brightness']
+            }
+        else:
+            response = {'state': current['state']}
+
+        response = json.dumps(response)
+        mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS,
+                     retain=True)
     else:
-        response = {'state': current['state']}
-
-    response = json.dumps(response)
-    mqtt.publish(MQTT_STATE_TOPIC, payload=response, qos=MQTT_QOS,
-                 retain=True)
+        print('MQTT connect failed:', rc)
 
 
 print('Setting up %d LEDS on pin %d' % (LED_COUNT, LED_GPIO))
