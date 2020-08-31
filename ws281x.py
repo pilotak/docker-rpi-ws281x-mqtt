@@ -284,6 +284,7 @@ strip = Adafruit_NeoPixel(
 
 # Intialize the library (must be called once before other functions).
 strip.begin()
+set_all_leds_color(strip, 0x000000)
 
 mqtt = paho.Client(MQTT_ID)
 
