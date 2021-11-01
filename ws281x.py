@@ -6,7 +6,7 @@ import os
 import paho.mqtt.client as paho
 import time
 from rpi_ws281x import Color
-from rpi_ws281x import Adafruit_NeoPixel
+from rpi_ws281x import Adafruit_NeoPixel, ws
 from effects.utils.utils import *
 
 from effects.theater_chase_rainbow import effect_theater_chase_rainbow
@@ -21,6 +21,7 @@ LED_FREQ_HZ = os.getenv('LED_FREQ_HZ', 800000)
 LED_DMA_NUM = os.getenv('LED_DMA_NUM', 10)
 LED_BRIGHTNESS = os.getenv('LED_BRIGHTNESS', 255)
 LED_INVERT = os.getenv('LED_INVERT', 0)
+LED_STRIP_TYPE = os.getenv('LED_STRIP_TYPE', 'GRB').upper()
 
 MQTT_BROKER = os.getenv('MQTT_BROKER', 'localhost')
 MQTT_USER = os.getenv('MQTT_USER', None)
@@ -65,6 +66,15 @@ effects_list = {
     }
 }
 
+strip_type_by_name = {
+    "BGR": ws.WS2811_STRIP_BGR,
+    "BRG": ws.WS2811_STRIP_BRG,
+    "GBR": ws.WS2811_STRIP_GBR,
+    "GRB": ws.WS2811_STRIP_GRB,
+    "RBG": ws.WS2811_STRIP_RBG,
+    "RGB": ws.WS2811_STRIP_RGB,
+}
+
 # error checking
 LED_CHANNEL = int(LED_CHANNEL)
 LED_COUNT = int(LED_COUNT)
@@ -73,6 +83,7 @@ LED_DMA_NUM = int(LED_DMA_NUM)
 LED_GPIO = int(LED_GPIO)
 LED_BRIGHTNESS = int(LED_BRIGHTNESS)
 LED_INVERT = int(LED_INVERT)
+LED_STRIP_TYPE = strip_type_by_name.get(LED_STRIP_TYPE)
 
 if LED_COUNT is None:
     raise ValueError('LED_COUNT is required env parameter')
@@ -88,6 +99,9 @@ if LED_FREQ_HZ != 800000 and LED_FREQ_HZ != 400000:
 
 if LED_DMA_NUM > 14 or LED_DMA_NUM < 0:
     raise ValueError('LED_DMA_NUM must be between 0-14')
+
+if LED_STRIP_TYPE is None:
+    raise ValueError('LED_STRIP_TYPE must be one of %s', ', '.join(strip_type_by_name.keys()))
 
 
 def effect_list_string():
@@ -280,6 +294,7 @@ strip = Adafruit_NeoPixel(
     LED_INVERT,
     LED_BRIGHTNESS,
     LED_CHANNEL,
+    LED_STRIP_TYPE
 )
 
 # Intialize the library (must be called once before other functions).
