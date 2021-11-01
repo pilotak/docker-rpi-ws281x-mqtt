@@ -15,6 +15,7 @@ For supported GPIOs please see [rpi-ws281x-python](https://github.com/rpi-ws281x
 | `LED_DMA_NUM` | optional | 10 | 0-14 |
 | `LED_BRIGHTNESS` | optional | 255 | 1-255 |
 | `LED_INVERT` | optional | 0 | 0 or 1 |
+| `LED_STRIP_TYPE` | optional | GRB | BGR, BRG, GBR, GRB, RBG, RGB |
 | `MQTT_BROKER` | optional | 'localhost' | |
 | `MQTT_USER` | optional | None | |
 | `MQTT_PASSWORD` | optional | None | |
